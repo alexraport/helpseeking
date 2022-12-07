@@ -1,0 +1,537 @@
+---
+title: " Two-Year-Olds Selectively Seek Help in the Context of Problem-Solving Analysis"
+output: html_notebook
+---
+
+----------------------------EXPERIMENT 1---------------------------------------------
+```{r message = FALSE, warning = FALSE}
+library(readxl) #to read an excel file
+library(dplyr)
+library(lme4)
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(tidyverse)
+library(here)  
+library(haven) 
+library(lmerTest)  
+library(splines) 
+library(modelsummary) 
+library(broom.mixed) 
+library(simr)
+library(MuMIn)
+library(psych)
+library(lattice)
+library(sjPlot)
+library(r2mlm)
+library(brms)
+```
+
+
+# Read data
+
+```{r}
+#read data
+exp1 <- read_xlsx("Experiment1Data.xlsx", range = "A1:K207")
+#convert chr columns into factor
+exp1 <- mutate_if(exp1, is.character, as.factor)
+exp1$Subject <- as.factor(exp1$Subject)
+exp1$Trial <- as.factor(exp1$Trial)
+```
+
+
+# Hypothesis 1
+
+* Do kids seek more help when unfamiliar with a task compared to kids who are familiar with the task?
+
+```{r}
+# select relevant columns of data
+hypo1 <- exp1 %>%
+  select(Subject,Condition,Puzzle, resphelp)
+str(hypo1) # There are 56 participants in total
+```
+
+## Number of data points provided by each kid
+
+```{r}
+sub <- hypo1 %>%
+  group_by(Subject)%>%
+  summarize(n = n())%>%
+  filter(n<4)%>%
+  ungroup
+
+table(sub$n)
+```
+
+
+
+## Table of help seeking by Condition
+
+```{r}
+condition_table<-hypo1 %>%
+  group_by(Condition, resphelp)%>%
+  summarize(n = n())%>%
+  mutate(prop = n/sum(n))%>%
+  ungroup()
+condition_table
+```
+
+* Based on the proportions, when unfamiliar with a task 73% of the time kids sought help compared to 27% when familiar with a task. 
+
+## Graph of the effect of Condition
+
+```{r}
+figure<- ggplot(condition_table[condition_table$resphelp==1,], aes(x = Condition, 
+                            y = prop,
+                            group = 1))+
+  geom_point(shape = 19,size = 3)+
+  geom_line()+
+  scale_x_discrete(labels = c("Familiar","Unfamiliar"))+
+  ylim(0,0.8)+
+  ylab("Proportion of Help Seeking")+
+  theme_pubr()
+figure
+
+ggplot(condition_table, aes(x = factor(Condition), y = prop, fill = factor(resphelp)))+
+  geom_col(position = "fill", width = .7)+
+  scale_fill_manual(values=c("#A5A5A5","#363131"),
+                    labels = c("No Help Sought","Help Sought"),
+                    name = "Response")+
+  scale_x_discrete(labels = c("Familiar","Unfamiliar"))+
+  ylab("Proportion")+
+  xlab("Condition")+
+  theme_classic()
+
+```
+
+
+
+## Analysis: Mixed-Effects Logistic Regression
+
+```{r}
+model_help <- glmer(resphelp~Condition+(1|Subject),
+                    data = hypo1,
+                    control = glmerControl(optimizer = "bobyqa"),
+                    family = "binomial")
+summary(model_help)
+confint(model_help)
+```
+
+**Result**
+
+56 kids were randomly assigned to one of the two conditions(familiar/unfamiliar), and were asked to solve four puzzles each. For each kid and puzzle combination, we recorded whether the kid sought help (coded as 1)or did not seek help (coded as 0). To evaluate our hypothesis that kids were more likely to seek help when unfamiliar with a task, we conducted a mixed-effects logistic regression analysis with condition (familar/unfamiliar) as the fixed-effect factor. The random effect structure of the model included by-subject random intercepts. We excluded by-item random intercepts as the model with by-subject and by-item random intercepts produced a higher AIC score compared to a model with by-subject intercept only (240.1 vs 241.9). Analysis was performed using the lme4 package in R(v.4.1.3). Estimated fixed-effect parameters are given in table xx.
+
+
+|  | Estimate | Std. Error | Pr(>$|z|$) | 
+|-------|------|--------|-------------|  
+| Intercept | -1.7887 | 0.3821 | <.0001 |  
+| ConditionUnfamiliar | 1.8033 | 0.4872 | <.001 |  
+ 
+
+As hypothesized, we found a significant effect of condition(familiar vs unfamiliar) in kids' help seeking behavior($\hat{\beta}=1.8033, p < .001$). This estimated parameter for the fixed-factor *condition* is in log odds-ratio. After converting log-odds ratio into odds-ratio, $e^{1.8033}=6.07$, we found that when unfamiliar with a task kids were 6 times more likely to seek for help compared to seeking help when familiar with a task.
+ 
+
+# HYPOTHESIS II
+
+* Who are kids seeking help from: baby or adult?
+* Is there an effect of gender and/or sibling on kids preference of helper?
+
+* Sibling data is in another excel file.
+* Extract sibling data from the other file.
+
+```{r}
+#read the other excel file
+wide_data <- read_xlsx("Data_wide.xlsx", range = "A1:Z57")
+#extract sibling column
+sibling <- wide_data$sib
+# add sibling column to the original data set expo1
+exp1$sibling <- sibling[exp1$Subject]
+```
+
+* subset kids who sought help
+
+```{r}
+# subset observations with help = 1
+sub_help <- exp1%>%
+  filter(resphelp == 1)%>%
+  select(Subject,Gender,Puzzle,resphelpwho,sibling)
+# drop unused levels
+sub_help <- droplevels(sub_help)
+```
+
+
+
+```{r}
+#number of times kids sought help from an adult vs a baby
+with(sub_help, table(resphelpwho))
+```
+
+
+```{r}
+# select Subject and resphelpwho from the dataset
+helper <- sub_help%>%
+  select(Subject,resphelpwho)
+str(helper)
+```
+
+```{r}
+# Testing whether there is a difference between choosing a baby or an adult as helper.
+summary(glmer(resphelpwho~1+(1|Subject), data = helper, family = "binomial"))
+```
+
+* **Result**
+
+* No significant difference in who kids are seeking help from.
+
+### Effect of gender and/or sibling on selecting a helper
+
+
+```{r}
+# Create a categorical sibling column 1 = the kid has sibling, 0 = the kid does not have sibling
+sub_help <- sub_help%>%
+  mutate(SiblingCat = ifelse(sibling == 0,"no","yes"))
+# convert SiblingCat into a factor
+sub_help$SiblingCat<- as.factor(sub_help$SiblingCat)
+str(sub_help)
+```
+
+
+```{r}
+# how many datapoints with and without a sibling
+with(sub_help, table(SiblingCat))
+# how many male and female data points
+with(sub_help, table(Gender))
+# Gender by Sibling Table
+with(sub_help, table(Gender, SiblingCat))
+# Gender by Sibling by helper table
+with(sub_help, table(SiblingCat, resphelpwho, Gender))
+```
+
+
+* Evaluate effect of gender and sibling on helper selection
+
+```{r}
+# effect of gender
+summary(glmer(resphelpwho~Gender+(1|Subject), data = sub_help, family = "binomial"))
+
+# effect of sibling
+summary(glmer(resphelpwho~SiblingCat+(1|Subject), data = sub_help, family = "binomial"))
+
+# effect of sibling and gender together
+summary(glmer(resphelpwho~Gender+SiblingCat+(1|Subject), data = sub_help, family = "binomial"))
+```
+
+**Result**
+
+Next, we looked at whether infants preferentially selected an adult over a baby when requesting help. We ran an intercept-only mixed effects logistic regression analysis using observations where kids sought help. The results indicated no significant difference between helper preference($\hat{\beta}=-0.01113, p = .966$). We did further analysis to test for the possible  effects that may have influenced these results. A mixed-effects logistic regression analysis was conducted to evaluate whether gender or sibling would be significant predictors of helper preference. The regression model included by-subject random intercepts. The results showed no significant effect of gender($\hat{\beta}=-0.1572, p = .774$) nor sibling($\hat{\beta}=0.5933, p = .357$).
+
+```{r}
+# summary of helper by gender and sibling
+genSib <- sub_help %>%
+  group_by(Gender, SiblingCat, resphelpwho)%>%
+  summarize(n = n())%>%
+  mutate(prop = n/sum(n))%>%
+  ungroup()
+genSib
+```
+
+```{r}
+#graph of the helper selection by gender and sibling
+ggplot(genSib, aes(x = resphelpwho, 
+                   y = prop,
+                   shape = SiblingCat,
+                   group = SiblingCat))+
+  geom_line()+
+  geom_point(size = 2)+
+  ylim(0,1)+
+  ylab("Proportion of Help Seeking")+
+  scale_x_discrete(name = "Helper", labels=c("Adult","Baby"))+
+  scale_shape_discrete(name = "Sibling")+
+  facet_wrap(~Gender)+
+  theme_pubr()
+  
+```
+
+# RQ1: In Exp 1, first time child sought help, who did they seek help from? 
+### Across unfamiliar and familiar conditions (collapse them)
+
+```{r}
+# Read data
+help.1 <- read.csv("Experiment1DataFT.csv", stringsAsFactors = TRUE)
+
+# Check data
+head(help.1) #shows there are columns deleted. 
+tail(help.1) #shows 957 rows. This is not right.
+data.frame(colnames(help.1)) #finds the index of columns. First 14 cols are relevant
+summary(help.1) #shows 751 NAs for cols with actual data
+# 957-751 = 206 #rows of actual data
+
+# Clean data
+help.1 <- help.1[1:206, 1:14]
+str(help.1)
+head(help.1) #check
+tail(help.1) #check
+
+# Fill empty cells with NAs
+help.1[help.1 == "" | help.1==" "] <- NA
+head(help.1)
+summary(help.1)
+str(help.1)
+
+# drop unused levels of type factor in the data frame
+help.1 <- droplevels(help.1)
+str(help.1) #check
+
+# Select the first observation each child sought help
+first.help <- help.1 %>%
+  filter(resphelp == 1)%>%
+  group_by(Subject) %>%
+  filter(row_number()==1)
+
+# Table of help seeking
+with(first.help, table(resphelpwho)) # A = 17, B = 19
+
+# Get the statistical result
+chisq.test(table(first.help$resphelpwho)) # not significant
+
+## Conclusion
+# We found no significant difference between who kids' sought help from(adult vs baby) 
+#in their first time seeking for help (chi-square(1) = .11, p = .74)
+```
+
+----------------------------EXPERIMENT 2---------------------------------------------
+
+```{r}
+# read data
+df.e2 <- read.csv("Experiment2Data.csv", stringsAsFactors = TRUE)
+
+# convert subject, resphelp, prompted into factors
+df.e2 <- mutate(df.e2, across(c("Subject", "prompted","resphelp"), factor))
+```
+
+```{r}
+# clean data
+# for resphelpwho and respknower, filter "" level and drop "" level
+df.e2 <- df.e2 %>%
+  filter(resphelpwho!="")
+df.e2$resphelpwho <- droplevels(df.e2$resphelpwho)
+
+df.e2 <- df.e2%>%
+  filter(respknower!="")
+df.e2$respknower<-droplevels(df.e2$respknower)
+```
+
+## RQ1: Kids seek help from an ignorant or a knowledgable helper?
+
+```{r}
+with(df.e2, table(respknower)) # I = 69, K = 107
+
+# the analysis: intercept only mixed effects logistic regression to compare two frequencies
+# ignorant = 0, knower = 1
+summary(glmer(respknower~1+(1|Subject),
+              data = df.e2,
+              family = "binomial"))
+
+knower <- (glmer(respknower~1+(1|Subject),
+              data = df.e2,
+              family = "binomial"))
+
+confint(knower)
+
+```
+
+* Results from mixed-effects logistic regression showed that when unfamiliar with a task kids are 1.55 times (exp(0.4387)) more likely to seek help from someone who is knowledgeable about the task compared to someone who is not(z = 2.842, p = .005). 
+
+### Does the type of helper (child vs adult) have an effect on whether they seek from a knowledgeable helper or an ignorant helper?
+
+```{r}
+with(df.e2, table(respknower, resphelpwho)) # it does not look so from the table
+```
+
+```{r}
+summary(glmer(respknower~resphelpwho+(1|Subject),
+              data = df.e2,
+              family = "binomial"))
+
+helper <- (glmer(respknower~resphelpwho+(1|Subject),
+              data = df.e2,
+              family = "binomial"))
+
+confint(helper)
+```
+
+```{r}
+# RQ 2: Same as RQ 1 but for experiment 2 (adult vs peer)
+
+# read data
+help.2 <- read.csv("Experiment2DataFT.csv", stringsAsFactors = TRUE)
+
+# Check data
+head(help.2) # has extra columns
+data.frame(colnames(help.2)) # get index of col names
+tail(help.2) # goes all the way to 965 rows
+summary(help.2)
+#965-784 #There are 181 rows of data 
+
+# Clean data
+help.2 <- help.2[1:181, 1:19]
+summary(help.2) # check
+
+# Replace empty cells with NAs
+help.2[help.2 == "" | help.2==" "] <- NA
+summary(help.2) #check
+
+# drop unused levels of factors
+help.2 <- droplevels(help.2)
+summary(help.2) #check
+
+# Select the first observation each child sought help
+help.exp2 <- help.2 %>%
+  filter(resphelp == 1)%>%
+  group_by(Subject) %>%
+  filter(row_number()==1)
+
+# Table of help seeking
+with(help.exp2, table(resphelpwho)) #A = 22, S = 26
+
+# Get the statistical result
+chisq.test(table(help.exp2$resphelpwho))
+
+## Conclusion
+# We found no significant difference between who kids' sought help from(adult vs peer) 
+#in their first time seeking for help (chi-square(1) = .33, p = .56)
+```
+
+```{r}
+# Experiment 2
+# Simple Effect of Gender 
+
+## Freq distribution of help seeking by gender(whether they sought help or not)
+with(help.2, table(Gender, resphelp))
+# There shouldn't be 0's as kids are forced to seek help. Filter resphelp == 1
+help.help <- help.2 %>%
+  filter(resphelp == 1)
+
+with(help.help, table(Gender, resphelp)) # check there are no 0s.
+
+## Freq distribution of who kids seek help from by gender
+with(help.help, table(Gender, resphelpwho)) # does not look different
+
+## Run mixed effects logistic regression to verify 
+m.gender <- glmer(resphelpwho~Gender+(1|Subject), data = help.help, family = "binomial")
+summary(m.gender)
+# No significant effect of gender on who kids seek help from.
+
+```
+
+```{r}
+## EFFECT OF SIBLING ON HELP SEEKING EXPERIMENT 2 (A vs S)
+with(help.2, table(sib, resphelpwho))
+# Frequency distribution shows more help seeking from an adult when they no sibling
+summary(glmer(resphelpwho~sib+(1|Subject),
+              data = help.2,
+              family = "binomial")) # not significant
+```
+
+----------------------------EXPERIMENT 3---------------------------------------------
+```{r}
+exp3 <- read.csv("Experiment3Data.csv") #load readxl package to use this str(exp3)
+str(exp3)
+
+anyNA(exp3)
+
+nas <- !complete.cases(exp3)#returns a logical vector. TRUE if a row has NA, FALSE otherwi which(nas)
+which(nas)
+
+exp3 <- exp3[-c(115,131),]
+
+str(exp3)
+
+anyNA(exp3)
+
+exp3 <- exp3%>%
+  select(Subject, TempOrdWho, RespHelpWho)
+str(exp3)
+
+exp3 <- exp3 %>%
+    mutate(Response = ifelse(RespHelpWho == "A", 1, 0),
+           Condition = ifelse(TempOrdWho == "B", 0, 1))
+
+with(exp3, table(Response, Condition))
+
+m1 <-glmer(Response~Condition + (1|Subject),
+           data = exp3, family = "binomial")
+
+summary(m1)
+
+confint(m1)
+```
+
+```{r}
+# For Experiment 3: Look at help seeking for Adult vs non-adult
+## The intercept only model
+### RQ: Is it the case that kids seek more help from an adult vs non-adult?
+with(help.3.sub, table(HelpWho))
+# it actually looks like kids seek more help from a nonadult (0 category)
+summary(glmer(HelpWho~1+(1|Subject),
+              data = help.3.sub,
+              family = "binomial"))
+
+exp3.pooled <- (glmer(HelpWho~1+(1|Subject),
+              data = help.3.sub,
+              family = "binomial"))
+
+
+help.3.sub$HelpWho <- as.factor(help.3.sub$HelpWho)
+str(help.3.sub)
+summary(exp3.pooled)
+confint(exp3.pooled)
+
+## the difference is statistically not significant (b = -.24, z = -1.28, p = .2)
+```
+
+
+```{r}
+## EFFECT OF SIBLING ON HELP SEEKING (A VS B) AND (A VS S) SEPARATELY. EXPERIMENT 3
+with(help.3.sub, table(TempOrdWho,RespHelpWho,Sibling))
+
+# Subset data with TempOrdWho == B (This is to compare A vs B give the choice A vs B)
+help.3.AvsB <- help.3.sub %>%
+  filter(TempOrdWho == "B")
+# drop unusued levels
+help.3.AvsB <- droplevels(help.3.AvsB)
+str(help.3.AvsB)
+# Regress RespHelpWho on Sibling
+summary(glmer(HelpWho~Sibling+(1|Subject),
+              data = help.3.AvsB,
+              family = "binomial")) # not significant
+
+# Subset data with TempOrdWho == S (This is to compare A vs S given the choice A vs S)
+help.3.AvsS <- help.3.sub %>%
+  filter(TempOrdWho == "S")
+#drop unused levels
+help.3.AvsS <- droplevels(help.3.AvsS)
+str(help.3.AvsS)
+# Regress RespHelpWho on Sibling
+summary(glmer(HelpWho~Sibling+(1|Subject),
+              data = help.3.AvsS,
+              family = "binomial"))
+## Conclusion: Given the option to choose help from an adult versus a baby
+# or adult from a peer, kids who did not have a sibling sought help more from an adult, 
+# while kids who did have a sibling sought more help from a baby or a peer. 
+# However, these findings were statistically not significant.
+
+# EXPERIMENT 3 EFFECT OF GENDER 
+# Regress RespHelpWho on GENDER A VS B
+summary(glmer(HelpWho~Gender+(1|Subject),
+              data = help.3.AvsB,
+              family = "binomial")) # not significant
+
+# Regress RespHelpWho on GENDER A vs S
+summary(glmer(HelpWho~Gender+(1|Subject),
+              data = help.3.AvsS,
+              family = "binomial")) # not significant
+
+# CONCLUSION: no effect of gender
+```
+
